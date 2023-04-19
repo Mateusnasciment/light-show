@@ -5,7 +5,7 @@ import sys
 import argparse
 import datetime
 
-MEMORY_LIMIT = 3500
+MEMORY_LIMIT = 3500  # The maximum memory usage allowed for a Light Show
 
 class ValidationError(Exception):
     pass
@@ -19,13 +19,15 @@ class ValidationResults:
 
 def validate(file):
     """Calculates the memory usage of the provided .fseq file"""
-    magic = file.read(4)
-    start, minor, major = struct.unpack("<HBB", file.read(4))
+    # Read file header information
+    magic = file.read(4)  # The file magic number
+    start, minor, major = struct.unpack("<HBB", file.read(4))  # The offset of the light show data, and the file format version
     file.seek(10)
-    channel_count, frame_count, step_time = struct.unpack("<IIB", file.read(9))
+    channel_count, frame_count, step_time = struct.unpack("<IIB", file.read(9))  # The number of channels, frames, and step time in the light show
     file.seek(20)
-    compression_type, = struct.unpack("<B", file.read(1))
+    compression_type, = struct.unpack("<B", file.read(1))  # The compression type used in the file
 
+    # Validate the file header information
     if (magic != b'PSEQ') or (start < 24) or (frame_count < 1) or (step_time < 15):
         raise ValidationError("Unknown file format, expected FSEQ v2.0")
     if channel_count != 48:
@@ -42,6 +44,7 @@ def validate(file):
         print(f"Please report this message at https://github.com/teslamotors/light-show/issues")
         print("")
 
+    # Calculate the memory usage of the light show data
     file.seek(start)
 
     prev_light = None
@@ -51,14 +54,16 @@ def validate(file):
     count = 0
 
     for frame_i in range(frame_count):
-        lights = file.read(30)
-        closures = file.read(16)
-        file.seek(2, 1)
+        lights = file.read(30)  # The light states for the current frame
+        closures = file.read(16)  # The closure states for the current frame
+        file.seek(2, 1)  # Skip over reserved bytes
 
+        # Determine the current state of the lights, ramps, and closures
         light_state = [(b > 127) for b in lights]
         ramp_state = [min((((255 - b) if (b > 127) else (b)) // 13 + 1) // 2, 3) for b in lights[:14]]
         closure_state = [((b // 32 + 1) // 2) for b in closures]
 
+        # Check if the state of the lights, ramps, or closures has changed
         if light_state != prev_light:
             prev_light = light_state
             count += 1
@@ -71,7 +76,6 @@ def validate(file):
         if closure_state[10:] != prev_closure_2:
             prev_closure_2 = closure_state[10:]
             count += 1
-   
     return ValidationResults(frame_count, step_time, duration_s, count / MEMORY_LIMIT)
 
 if __name__ == "__main__":
